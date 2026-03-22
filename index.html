@@ -242,6 +242,73 @@ select.inp{cursor:pointer}select.inp option{background:var(--card2)}
   .big-word{font-size:2rem}
   #wcanvas{width:190px!important;height:190px!important}
 }
+
+/* ── KICK BUTTON ── */
+.btn-kick{
+  padding:3px 9px;border:1px solid rgba(239,68,68,.35);border-radius:6px;
+  background:transparent;color:var(--red);font-size:.75rem;font-weight:800;
+  cursor:pointer;transition:.15s;font-family:inherit;flex-shrink:0;
+  opacity:.7;
+}
+.btn-kick:hover{background:rgba(239,68,68,.15);opacity:1;border-color:var(--red)}
+
+/* ── ROUND PROGRESS BAR ── */
+#round-bar{
+  width:100%;max-width:500px;
+  display:flex;align-items:center;gap:10px;
+  font-size:.78rem;color:var(--muted);font-weight:700;
+}
+#round-bar-track{flex:1;height:5px;border-radius:5px;background:var(--card2);overflow:hidden}
+#round-bar-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:5px;transition:width .5s ease}
+
+/* ── REACTION BAR ── */
+#reaction-bar{
+  display:flex;gap:8px;justify-content:center;flex-wrap:wrap;
+}
+.react-btn{
+  font-size:1.5rem;background:var(--card2);border:1px solid var(--border);
+  border-radius:10px;padding:6px 12px;cursor:pointer;
+  transition:.15s;line-height:1;
+}
+.react-btn:hover{transform:scale(1.2);border-color:var(--accent);background:var(--card)}
+
+/* ── FLOATING REACTION ── */
+.float-react{
+  position:fixed;pointer-events:none;font-size:2.2rem;
+  animation:floatUp 1.8s ease-out forwards;z-index:999;
+}
+@keyframes floatUp{
+  0%{opacity:1;transform:translateY(0) scale(1)}
+  60%{opacity:1;transform:translateY(-80px) scale(1.3)}
+  100%{opacity:0;transform:translateY(-130px) scale(.8)}
+}
+
+/* ── HOST CONTROLS IN GAME ── */
+#host-game-panel{
+  display:none;
+  align-items:center;gap:8px;
+  padding:8px 14px;
+  background:rgba(108,63,255,.06);
+  border-top:1px solid var(--border);
+  flex-shrink:0;
+}
+.btn-host-action{
+  flex:1;padding:6px 10px;border:1px solid var(--border);border-radius:8px;
+  background:var(--card2);color:var(--text);font-size:.78rem;font-weight:800;
+  font-family:inherit;cursor:pointer;transition:.15s;text-align:center;
+}
+.btn-host-action:hover{border-color:var(--accent);background:rgba(108,63,255,.1)}
+.btn-host-action.danger:hover{border-color:var(--red);background:rgba(239,68,68,.1);color:var(--red)}
+
+/* ── TOAST ── */
+#toast{
+  position:fixed;top:44px;left:50%;transform:translateX(-50%) translateY(-8px);
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:9px 20px;font-size:.85rem;font-weight:700;
+  box-shadow:0 8px 24px rgba(0,0,0,.4);z-index:200;
+  opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
@@ -252,6 +319,7 @@ select.inp{cursor:pointer}select.inp option{background:var(--card2)}
   <span id="stext">Conectando...</span>
   <span id="sroom" style="margin-left:auto;font-family:'Fredoka One',cursive;font-size:.9rem;color:var(--accent);letter-spacing:2px"></span>
 </div>
+<div id="toast"></div>
 
 <div id="page">
 
@@ -321,6 +389,12 @@ select.inp{cursor:pointer}select.inp option{background:var(--card2)}
 
   <div class="game-main">
 
+    <!-- ROUND PROGRESS -->
+    <div id="round-bar" style="display:none">
+      <span id="round-label">Ronda 1/10</span>
+      <div id="round-bar-track"><div id="round-bar-fill" style="width:0%"></div></div>
+    </div>
+
     <!-- WHEEL PHASE -->
     <div id="p-wheel" style="display:none;flex-direction:column;align-items:center;gap:13px">
       <div style="font-family:'Fredoka One',cursive;font-size:1.05rem;text-align:center" id="wheel-actor-msg"></div>
@@ -352,6 +426,14 @@ select.inp{cursor:pointer}select.inp option{background:var(--card2)}
         </svg>
         <div class="timer-num-center" id="act-timer-num">60</div>
       </div>
+      <!-- Reaction bar — visible to spectators and actor -->
+      <div id="reaction-bar">
+        <button class="react-btn" onclick="sendReaction('👏')">👏</button>
+        <button class="react-btn" onclick="sendReaction('🔥')">🔥</button>
+        <button class="react-btn" onclick="sendReaction('😂')">😂</button>
+        <button class="react-btn" onclick="sendReaction('🤔')">🤔</button>
+        <button class="react-btn" onclick="sendReaction('😱')">😱</button>
+      </div>
     </div>
 
   </div><!-- /game-main -->
@@ -373,6 +455,11 @@ select.inp{cursor:pointer}select.inp option{background:var(--card2)}
           onkeydown="if(event.key==='Enter')sendGuess()">
         <button class="chat-send" onclick="sendGuess()">↑</button>
       </div>
+    </div>
+    <!-- Host-only controls panel -->
+    <div id="host-game-panel">
+      <button class="btn-host-action" onclick="hostSkipTurn()" title="Saltar turno actual">⏭ Saltar</button>
+      <button class="btn-host-action danger" onclick="showKickMenu()" title="Expulsar jugador">🚫 Expulsar</button>
     </div>
   </div>
 
@@ -511,10 +598,14 @@ function onClientMsg(conn,msg){
   if(msg.type==='join'){
     if(G.phase!=='lobby'){conn.send({type:'err',msg:'El juego ya comenzó'});return}
     G.players.push({id:conn.peer,name:msg.name,isHost:false});G.scores[conn.peer]=0;
-    G.chat.push({system:true,text:`${msg.name} se unió`});
+    G.chat.push({system:true,text:`${msg.name} se unió 👋`});
     broadcastState();renderLobby();
   } else if(msg.type==='spin_request'){
     if(curActor()?.id===conn.peer&&G.phase==='wheel')executeHostSpin();
+  } else if(msg.type==='reaction'){
+    // Relay reaction to all clients and show locally
+    broadcast({type:'reaction',emoji:msg.emoji,name:msg.name});
+    showFloatReaction(msg.emoji);
   } else if(msg.type==='chat'){
     if(G.phase!=='acting')return;
     const sender=G.players.find(p=>p.id===conn.peer);
@@ -529,7 +620,6 @@ function onClientMsg(conn,msg){
     } else {
       G.chat.push({from:sender?.name||'?',text:msg.text,correct:false});
       broadcastState();
-      // Host paints the new message on its own screen immediately
       if(G.phase==='acting') renderChat();
     }
   }
@@ -537,14 +627,84 @@ function onClientMsg(conn,msg){
 
 function onHostMsg(msg){
   if(msg.type==='err'){alert(msg.msg);return}
+  if(msg.type==='kicked'){showToast('⛔ Fuiste expulsado por el anfitrión');setTimeout(()=>location.reload(),2000);return}
   if(msg.type==='spin_cd'){
     spinCdLeft=msg.left;$('spin-cd-num').textContent=spinCdLeft;
     $('spin-countdown').style.display='block';
-    const clr=spinCdLeft>10?'var(--muted)':spinCdLeft>5?'var(--orange)':'var(--red)';
+    const clr=spinCdLeft>10?'var(--orange)':spinCdLeft>5?'var(--orange)':'var(--red)';
     $('spin-countdown').style.color=clr;return;
   }
+  if(msg.type==='reaction'){showFloatReaction(msg.emoji);return}
   if(msg.type==='spin_anim'){animWheel(msg.finalAngle,msg.duration,null);return}
   if(msg.type==='state'){G=msg.G;render()}
+}
+
+// ─── KICK ────────────────────────────────────
+function kickPlayer(id){
+  if(!isHost||id===myId)return;
+  const p=G.players.find(pl=>pl.id===id);
+  if(!p)return;
+  if(!confirm(`¿Expulsar a ${p.name}?`))return;
+  // Send kicked msg before closing
+  const conn=conns.find(c=>c.peer===id);
+  if(conn){try{conn.send({type:'kicked'})}catch(e){}}
+  setTimeout(()=>{
+    if(conn)conn.close();
+    G.players=G.players.filter(pl=>pl.id!==id);
+    delete G.scores[id];
+    conns=conns.filter(c=>c.peer!==id);
+    const wasActor=G.actorIdx%Math.max(G.players.length,1);
+    G.chat.push({system:true,text:`${p.name} fue expulsado`});
+    broadcastState();
+    if(G.phase==='lobby'){renderLobby()}
+    else{render();if(G.phase==='acting')renderChat()}
+    showToast(`🚫 ${p.name} expulsado`);
+  },150);
+}
+
+function showKickMenu(){
+  const kickable=G.players.filter(p=>p.id!==myId);
+  if(!kickable.length){showToast('No hay jugadores para expulsar');return}
+  const name=prompt('¿A quién expulsar?\n'+kickable.map((p,i)=>`${i+1}. ${p.name}`).join('\n')+'\n\nEscribe el número:');
+  const n=parseInt(name);
+  if(n>=1&&n<=kickable.length)kickPlayer(kickable[n-1].id);
+}
+
+function hostSkipTurn(){
+  if(!isHost)return;
+  clearInterval(timerInt);clearSpinCd();
+  G.chat.push({system:true,text:'⏭ Turno saltado por el anfitrión'});
+  skipToNext(null);
+  showToast('⏭ Turno saltado');
+}
+
+// ─── REACTIONS ───────────────────────────────
+function sendReaction(emoji){
+  showFloatReaction(emoji);
+  if(isHost){
+    broadcast({type:'reaction',emoji,name:myName});
+  } else {
+    hostConn.send({type:'reaction',emoji,name:myName});
+  }
+}
+
+function showFloatReaction(emoji){
+  const el=document.createElement('div');
+  el.className='float-react';
+  el.textContent=emoji;
+  el.style.left=(20+Math.random()*60)+'vw';
+  el.style.bottom='120px';
+  document.body.appendChild(el);
+  setTimeout(()=>el.remove(),2000);
+}
+
+// ─── TOAST ───────────────────────────────────
+let toastTimer=null;
+function showToast(msg){
+  const t=$('toast');
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2500);
 }
 
 // ─── LOBBY ───────────────────────────────────
@@ -563,6 +723,7 @@ function renderLobby(){
       ${p.id===myId?'🎭':'👤'}<span style="flex:1">${p.name}</span>
       ${p.isHost?'<span class="badge badge-host">Anfitrión</span>':''}
       ${p.id===myId?'<span class="badge badge-me">Tú</span>':''}
+      ${isHost&&!p.isHost?`<button class="btn-kick" onclick="kickPlayer('${p.id}')">✕ Expulsar</button>`:''}
     </div>`).join('');
   if(isHost)$('btn-start').disabled=G.players.length<2;
 }
@@ -715,6 +876,10 @@ function renderActing(){
   $('chat-input-row').style.display=isActor?'none':'flex';
   $('chat-actor-note').style.display=isActor?'block':'none';
   renderSidebar();renderChat();
+  // Make sure round bar is visible
+  $('round-bar').style.display='flex';
+  $('round-label').textContent=`Ronda ${G.roundNum+1}/${G.totalRounds}`;
+  $('round-bar-fill').style.width=((G.roundNum/G.totalRounds)*100)+'%';
 }
 
 function updateTimerDisplay(){
@@ -775,10 +940,22 @@ function renderSidebar(){
   $('sidebar-scores').innerHTML=sorted.map((p,i)=>{
     const m=i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
     return`<div class="score-row ${p.id===aid?'is-actor':''}">
-      <span>${p.id===aid?'🎭':'👤'} ${m} ${p.name}${p.id===myId?' (tú)':''}</span>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        ${p.id===aid?'🎭':'👤'} ${m} ${p.name}${p.id===myId?' <span style="color:var(--accent);font-size:.75rem">(tú)</span>':''}
+      </span>
+      ${isHost&&p.id!==myId?`<button class="btn-kick" onclick="kickPlayer('${p.id}')" title="Expulsar">✕</button>`:''}
       <span class="score-pts">${G.scores[p.id]||0}</span>
     </div>`;
   }).join('');
+  // Host panel in game
+  $('host-game-panel').style.display=isHost?'flex':'none';
+  // Round progress bar
+  const rb=$('round-bar');
+  if(G.phase==='wheel'||G.phase==='acting'){
+    rb.style.display='flex';
+    $('round-label').textContent=`Ronda ${G.roundNum+1}/${G.totalRounds}`;
+    $('round-bar-fill').style.width=((G.roundNum/G.totalRounds)*100)+'%';
+  } else {rb.style.display='none'}
 }
 
 // ─── ROUND END ───────────────────────────────
